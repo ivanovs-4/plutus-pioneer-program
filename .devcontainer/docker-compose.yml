@@ -4,7 +4,7 @@ volumes:
   node-db:
 services:
   cardano-node:
-    image: robertinoiog/cardano-node:1.35.5-v3
+    image: ghcr.io/intersectmbo/cardano-node:10.1.4
     environment:
       NETWORK: ${NETWORK:-preview}
     volumes:
