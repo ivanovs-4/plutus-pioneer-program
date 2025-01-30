@@ -17,6 +17,8 @@ services:
         max-file: "10"
   ppp:
     # image: robertinoiog/plutus-pioneer-program-4:v6
+    ### On changing Dockerfile run:
+    ### docker compose up -d --no-deps --build ppp
     build: .
     environment:
       NETWORK: ${NETWORK:-preview}
