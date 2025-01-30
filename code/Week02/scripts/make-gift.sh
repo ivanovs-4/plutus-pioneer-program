@@ -1,4 +1,7 @@
-#!/bin/bash
+#!/usr/bin/env bash
+
+set -eu
+set -x
 
 assets=/workspace/code/Week02/assets
 keypath=/workspace/keys
@@ -7,6 +10,8 @@ txin="$2"
 body="$assets/gift.txbody"
 tx="$assets/gift.tx"
 
+set pipefail
+
 # Build gift address 
 cardano-cli address build \
     --payment-script-file "$assets/gift.plutus" \
@@ -14,27 +19,26 @@ cardano-cli address build \
     --out-file "$assets/gift.addr"
 
 # Build the transaction
-cardano-cli transaction build \
-    --babbage-era \
+cardano-cli conway transaction build \
     --testnet-magic 2 \
     --tx-in "$txin" \
-    --tx-out "$(cat "$assets/gift.addr") + 3000000 lovelace" \
+    --tx-out "$(cat "$assets/gift.addr") + 1234567 lovelace" \
     --tx-out-inline-datum-file "$assets/unit.json" \
     --change-address "$(cat "$keypath/$name.addr")" \
     --out-file "$body"
     
 # Sign the transaction
-cardano-cli transaction sign \
+cardano-cli conway transaction sign \
     --tx-body-file "$body" \
     --signing-key-file "$keypath/$name.skey" \
     --testnet-magic 2 \
     --out-file "$tx"
 
 # Submit the transaction
-cardano-cli transaction submit \
+cardano-cli conway transaction submit \
     --testnet-magic 2 \
     --tx-file "$tx"
 
-tid=$(cardano-cli transaction txid --tx-file "$tx")
+tid=$(cardano-cli conway transaction txid --tx-file "$tx")
 echo "transaction id: $tid"
 echo "Cardanoscan: https://preview.cardanoscan.io/transaction/$tid"

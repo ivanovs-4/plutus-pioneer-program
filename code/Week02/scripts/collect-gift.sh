@@ -6,19 +6,18 @@ name="$1"
 collateral="$2"
 txin="$3"
 
-pp="$assets/protocol-parameters.json"
+# pp="$assets/protocol-parameters.json"
 body="$assets/collect-gift.txbody"
 tx="$assets/collect-gift.tx"
 
 # Query the protocol parameters \
 
-cardano-cli query protocol-parameters \
-    --testnet-magic 2 \
-    --out-file "$pp"
+# cardano-cli query protocol-parameters \
+#     --testnet-magic 2 \
+#     --out-file "$pp"
 
 # Build the transaction
-cardano-cli transaction build \
-    --babbage-era \
+cardano-cli conway transaction build \
     --testnet-magic 2 \
     --tx-in "$txin" \
     --tx-in-script-file "$assets/gift.plutus" \
@@ -26,21 +25,21 @@ cardano-cli transaction build \
     --tx-in-redeemer-file "$assets/unit.json" \
     --tx-in-collateral "$collateral" \
     --change-address "$(cat "$keypath/$name.addr")" \
-    --protocol-params-file "$pp" \
     --out-file "$body"
+    # --protocol-params-file "$pp" \
     
 # Sign the transaction
-cardano-cli transaction sign \
+cardano-cli conway transaction sign \
     --tx-body-file "$body" \
     --signing-key-file "$keypath/$name.skey" \
     --testnet-magic 2 \
     --out-file "$tx"
 
 # Submit the transaction
-cardano-cli transaction submit \
+cardano-cli conway transaction submit \
     --testnet-magic 2 \
     --tx-file "$tx"
 
-tid=$(cardano-cli transaction txid --tx-file "$tx")
+tid=$(cardano-cli conway transaction txid --tx-file "$tx")
 echo "transaction id: $tid"
 echo "Cardanoscan: https://preview.cardanoscan.io/transaction/$tid"
