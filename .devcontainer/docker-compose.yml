@@ -1,4 +1,4 @@
-version: "3.5"
+# version: "3.5"
 volumes:
   node-ipc:
   node-db:
@@ -16,8 +16,8 @@ services:
         max-size: "200k"
         max-file: "10"
   ppp:
-    image: robertinoiog/plutus-pioneer-program-4:v6
-    # build: .
+    # image: robertinoiog/plutus-pioneer-program-4:v6
+    build: .
     environment:
       NETWORK: ${NETWORK:-preview}
     volumes:
