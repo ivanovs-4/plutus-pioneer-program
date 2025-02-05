@@ -9,54 +9,55 @@ choiceId :: Party -> ChoiceId
 choiceId = ChoiceId "Winner"
 
 contract :: Party -> Party -> Party -> Value -> Contract
-contract alice bob charlie deposit =
+contract alice bob charlie depVal =
     When
         [ f alice bob
         , f bob alice
         ]
         10 Close
   where
+    mkDeposit :: AccountId -> Value -> Action
+    mkDeposit q = Deposit q q ada
+
+    payDepositFromTo :: AccountId -> AccountId -> Value -> Contract -> Contract
+    payDepositFromTo payFrom payTo val =
+       Pay payFrom (Account payTo) ada val
+
+    charlieDepVal :: Value
+    charlieDepVal = AddValue depVal depVal
+
     f :: Party -> Party -> Case
     f x y =
         Case
-            (Deposit
-                x
-                x
-                ada
-                deposit
-            )
+            (mkDeposit charlie charlieDepVal)
             (When
                 [Case
-                    (Deposit
-                        y
-                        y
-                        ada
-                        deposit
-                    )
+                    (mkDeposit x depVal)
                     (When
                         [Case
-                            (Choice
-                                (choiceId charlie)
-                                [Bound 1 2]
-                            )
-                            (If
-                                (ValueEQ
-                                    (ChoiceValue $ choiceId charlie)
-                                    (Constant 1)
-                                )
-                                (Pay
-                                    bob
-                                    (Account alice)
-                                    ada
-                                    deposit
-                                    Close
-                                )
-                                (Pay
-                                    alice
-                                    (Account bob)
-                                    ada
-                                    deposit
-                                    Close
+                            (mkDeposit y depVal)
+                            (When
+                                [Case
+                                    (Choice
+                                        (choiceId charlie)
+                                        [Bound 1 2]
+                                    )
+                                        (payDepositFromTo charlie charlie charlieDepVal
+                                            (If
+                                                (ValueEQ
+                                                    (ChoiceValue $ choiceId charlie)
+                                                    (Constant 1)
+                                                )
+                                                (payDepositFromTo x y depVal Close)
+                                                (payDepositFromTo y x depVal Close)
+                                            )
+                                        )
+                                ]
+                                40
+                                (payDepositFromTo charlie alice depVal
+                                    (payDepositFromTo charlie bob depVal
+                                        Close
+                                    )
                                 )
                             )]
                         30 Close
