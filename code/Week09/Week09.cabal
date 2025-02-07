@@ -34,14 +34,24 @@ common common-all
 library
   import:               common-all
   hs-source-dirs:       lecture/on-chain
+                        homework
   exposed-modules:      NFT
                         Oracle
                         Collateral
                         Minting
+                        HW.Collateral
+                        HW.Minting
 
 test-suite week09-UnitTesting
     import:             common-all
     type:               exitcode-stdio-1.0
     main-is:            UnitTesting.hs
     hs-source-dirs:     tests
+    build-depends:      week09
+
+test-suite week09-Homework
+    import:             common-all
+    type:               exitcode-stdio-1.0
+    main-is:            UnitTesting.hs
+    hs-source-dirs:     homework-tests
     build-depends:      week09
