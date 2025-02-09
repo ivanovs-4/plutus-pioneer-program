@@ -13,6 +13,7 @@ import Plutus.V2.Ledger.Api      ( OutputDatum(..), TxOut(txOutAddress, txOutVal
                                    Value, ScriptContext(scriptContextTxInfo),
                                    TxInfo(txInfoReferenceInputs, txInfoMint),
                                    BuiltinData, mkMintingPolicyScript, adaToken,
+                                   PubKeyHash,
                                    adaSymbol, MintingPolicy, TxInInfo(txInInfoResolved),
                                    txInfoInputs, txOutDatum, UnsafeFromData (unsafeFromBuiltinData),
                                    ValidatorHash)
@@ -23,10 +24,10 @@ import PlutusTx                  ( compile, unstableMakeIsData,
                                    liftCode, applyCode, makeLift, CompiledCode )
 import PlutusTx.Prelude          ( Bool(False), Integer, Maybe(..), (.), negate, traceError,
                                    (&&), traceIfFalse, ($), Ord((<), (>), (>=)), Eq((==)), divide,
-                                   (-), 
-                                   MultiplicativeSemigroup((*)))
+                                   (-), (+),
+                                   MultiplicativeSemigroup((*)), filter)
 import qualified Prelude         ( Show, IO)
-import           Oracle          ( parseOracleDatum)
+import           HW.Oracle       ( parseOracleDatum, OracleDatum(..) )
 import           HW.Collateral   ( CollateralDatum (..), stablecoinTokenName, parseCollateralDatum)
 import           Utilities       (wrapPolicy, writeCodeToFile)
 
@@ -57,15 +58,22 @@ mkPolicy mp r ctx = case r of
     Mint      -> traceIfFalse "minted amount must be positive" checkMintPositive &&
                  traceIfFalse "minted amount exceeds max" checkMaxMintOut &&
                  traceIfFalse "invalid datum at collateral output" checkDatum
+              && traceIfFalse "you need to pay the commission 0.1% to the developer"
+                              (checkDeveloperFee (oracleDatumFeeRecipient oracleDatum) collateralOutputAmount)
 
     Burn      -> traceIfFalse "invalid burning amount" checkBurnAmountMatchesColDatum &&
                  traceIfFalse "owner's signature missing" checkColOwner &&
                  traceIfFalse "Minting instead of burning!" checkBurnNegative
+              && traceIfFalse "you need to pay the commission 0.1% to the developer"
+                              (checkDeveloperFee (colFeeReceiver collateralInputDatum) collateralInputAmount)
 
     Liquidate -> traceIfFalse "invalid liquidating amount" checkBurnAmountMatchesColDatum &&
                  traceIfFalse "liquidation threshold not reached" checkLiquidation &&
                  traceIfFalse "Minting instead of burning!" checkBurnNegative
-              && traceIfFalse "At least 98% of collateral must go to it's owner" checkColOwnerGotMostOfCollateral
+              && traceIfFalse "At least 98% of collateral must go to it's owner (before the developer fee)"
+                              checkColOwnerGotMostOfCollateral
+              && traceIfFalse "you need to pay the commission 0.1% to the developer"
+                              (checkDeveloperFee (oracleDatumFeeRecipient oracleDatum) collateralInputAmount)
                  
     where
     info :: TxInfo
@@ -77,7 +85,8 @@ mkPolicy mp r ctx = case r of
     getOracleInput :: TxOut
     getOracleInput = case oracleInputs of
                     [o] -> o
-                    _   -> traceError "expected exactly one oracle input"
+                    []  -> traceError "expected exactly one oracle input. got not a single one"
+                    _   -> traceError "expected exactly one oracle input. got more than one"
         where
             oracleInputs :: [TxOut]
             oracleInputs = [ o
@@ -86,12 +95,14 @@ mkPolicy mp r ctx = case r of
                            , txOutAddress o == scriptHashAddress (mpOracleValidator mp)
                            ]
 
-    -- Get the rate (Datum) from the Oracle
-    rate :: Integer
-    rate = case parseOracleDatum getOracleInput info of
+    -- Get the OracleDatum from the Oracle
+    oracleDatum :: OracleDatum
+    oracleDatum = case parseOracleDatum getOracleInput info of
         Nothing -> traceError "Oracle's datum not found"
         Just x  -> x
 
+    rate :: Integer
+    rate = oracleDatumRate oracleDatum
 
     --------- MINTING-RELATED FUNCTIONS ------------
 
@@ -139,7 +150,8 @@ mkPolicy mp r ctx = case r of
     collateralOutput :: (OutputDatum, Value)
     collateralOutput = case scriptOutputsAt (mpCollateralValidator mp) info of
                         [(h, v)] -> (h, v)
-                        _        -> traceError "expected exactly one collateral output"
+                        []       -> traceError "expected exactly one collateral output. got not a single one"
+                        _        -> traceError "expected exactly one collateral output. got more than one"
 
     -- Get the collateral's output datum
     collateralOutputDatum :: Maybe CollateralDatum
@@ -159,13 +171,15 @@ mkPolicy mp r ctx = case r of
         Nothing -> False
         Just d  -> colMintingPolicyId d  == ownCurrencySymbol ctx &&
                    colStablecoinAmount d == mintedAmount &&
+                   colFeeReceiver d == oracleDatumFeeRecipient oracleDatum &&
                    txSignedBy info (colOwner d)
 
     -- Get the collateral's input
     collateralInput :: TxOut
     collateralInput = case collateralInputs of
                         [o] -> o
-                        _   -> traceError "expected exactly one collateral input"
+                        []  -> traceError "expected exactly one collateral input. got not a single one"
+                        _   -> traceError "expected exactly one collateral input. got more than one"
         where
             collateralInputs = [ o
                                 | i <- txInfoInputs info
@@ -174,8 +188,13 @@ mkPolicy mp r ctx = case r of
                                 ]
 
     -- Get the collateral's input datum
-    collateralInputDatum :: Maybe CollateralDatum
-    collateralInputDatum = parseCollateralDatum (txOutDatum collateralInput) info
+    collateralInputDatumMay :: Maybe CollateralDatum
+    collateralInputDatumMay = parseCollateralDatum (txOutDatum collateralInput) info
+
+    collateralInputDatum :: CollateralDatum
+    collateralInputDatum = case collateralInputDatumMay of
+        Nothing -> traceError "collateralInputDatum is not present"
+        Just d  -> d
 
     -- Get the collateral's input amount
     collateralInputAmount :: Integer
@@ -183,13 +202,13 @@ mkPolicy mp r ctx = case r of
 
     -- Check that the amount of stablecoins burned matches the amont at the collateral's datum
     checkBurnAmountMatchesColDatum :: Bool
-    checkBurnAmountMatchesColDatum = case collateralInputDatum of
+    checkBurnAmountMatchesColDatum = case collateralInputDatumMay of
         Nothing -> False
         Just d  -> negate (colStablecoinAmount d) == mintedAmount
 
     -- Check that the owner's signature is present
     checkColOwner :: Bool
-    checkColOwner = case collateralInputDatum of
+    checkColOwner = case collateralInputDatumMay of
         Nothing -> False
         Just d  -> txSignedBy info (colOwner d)
 
@@ -198,7 +217,15 @@ mkPolicy mp r ctx = case r of
     checkLiquidation = maxMint collateralInputAmount < negate mintedAmount
 
     checkColOwnerGotMostOfCollateral :: Bool
-    checkColOwnerGotMostOfCollateral = collateralOwnerOutputAmount >= (collateralInputAmount - ((collateralInputAmount * 2) `divide` 100))
+    checkColOwnerGotMostOfCollateral =
+      -- collateralOwnerOutputAmount >= collateralInputAmount `divide` 2
+      collateralOwnerOutputAmount >= (collateralInputAmount - (
+                                          -- payment to the liquidator
+                                          collateralInputAmount * 2 `divide` 100
+                                          -- developer fee
+                                        + collateralInputAmount `divide` 1000
+                                        + collateralInputAmount `divide` 40
+                                      ))
 
     collateralOwnerOutputAmount :: Integer
     collateralOwnerOutputAmount = valueOf (txOutValue collateralOwnerOutput) adaSymbol adaToken
@@ -214,9 +241,24 @@ mkPolicy mp r ctx = case r of
                                 , txOutAddress o == pkh
                                 ]
 
-            colOwnerPKH = case collateralInputDatum of
+            colOwnerPKH = case collateralInputDatumMay of
                 Nothing -> []
                 Just d  -> [pubKeyHashAddress (colOwner d)]
+
+    ---
+
+    developerOutputAmount :: PubKeyHash -> Integer
+    developerOutputAmount pkh = valueOf (txOutValue (developerOutput pkh)) adaSymbol adaToken
+
+    developerOutput :: PubKeyHash -> TxOut
+    developerOutput pkh = case developerOutputs of
+                        [o] -> o
+                        _   -> traceError "exactly one output must go to developer"
+        where
+            developerOutputs = filter ((== pubKeyHashAddress pkh) . txOutAddress) (txInfoOutputs info)
+
+    checkDeveloperFee :: PubKeyHash -> Integer -> Bool
+    checkDeveloperFee pkh col = developerOutputAmount pkh >= col `divide` 1000
 
 ---------------------------------------------------------------------------------------------------
 ------------------------------ COMPILE AND SERIALIZE VALIDATOR ------------------------------------

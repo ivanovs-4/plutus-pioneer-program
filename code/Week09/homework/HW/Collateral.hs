@@ -59,6 +59,8 @@ data CollateralDatum = CollateralDatum
     { colMintingPolicyId  :: CurrencySymbol 
     , colOwner            :: PubKeyHash
     , colStablecoinAmount :: Integer
+    , colFeeReceiver      :: PubKeyHash
+    -- ^ we need it here because when we burn, the oracle is no longer available
     } deriving Prelude.Show
 unstableMakeIsData ''CollateralDatum
 

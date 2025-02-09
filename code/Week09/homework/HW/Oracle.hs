@@ -58,7 +58,7 @@ import Text.Printf (printf)
 ----------------------------- ON-CHAIN: HELPER FUNCTIONS/TYPES ------------------------------------
 
 {-# INLINABLE parseOracleDatum #-}
-parseOracleDatum :: TxOut -> TxInfo -> Maybe Integer
+parseOracleDatum :: TxOut -> TxInfo -> Maybe OracleDatum
 parseOracleDatum o info = case txOutDatum o of
     NoOutputDatum -> Nothing
     OutputDatum (Datum d) -> PlutusTx.fromBuiltinData d
@@ -68,6 +68,12 @@ parseOracleDatum o info = case txOutDatum o of
 
 ---------------------------------------------------------------------------------------------------
 ----------------------------------- ON-CHAIN / VALIDATOR ------------------------------------------
+
+data OracleDatum = OracleDatum
+  { oracleDatumRate :: Integer
+  , oracleDatumFeeRecipient :: PubKeyHash
+  } deriving Prelude.Show
+unstableMakeIsData ''OracleDatum
 
 data OracleParams = OracleParams
     { oNFT        :: AssetClass
@@ -79,11 +85,8 @@ data OracleRedeemer = Update | Delete
     deriving Prelude.Show
 PlutusTx.unstableMakeIsData ''OracleRedeemer
 
--- Oracle Datum
-type Rate = Integer
-
 {-# INLINABLE mkValidator #-}
-mkValidator :: OracleParams -> Rate -> OracleRedeemer -> ScriptContext -> Bool
+mkValidator :: OracleParams -> OracleDatum -> OracleRedeemer -> ScriptContext -> Bool
 mkValidator oracle _ r ctx =
     case r of
         Update -> traceIfFalse "token missing from input"   inputHasToken  &&
@@ -114,7 +117,8 @@ mkValidator oracle _ r ctx =
     ownOutput :: TxOut
     ownOutput = case getContinuingOutputs ctx of
         [o] -> o
-        _   -> traceError "expected exactly one oracle output"
+        []  -> traceError "expected exactly one oracle output. got not a single one"
+        _   -> traceError "expected exactly one oracle output. got more than one"
 
     -- Check that the oracle output contains the NFT.
     outputHasToken :: Bool
