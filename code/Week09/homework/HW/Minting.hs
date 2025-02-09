@@ -9,24 +9,25 @@
 
 module HW.Minting where
 
-import Plutus.V2.Ledger.Api      ( OutputDatum(..), TxOut(txOutAddress, txOutValue),
+import Plutus.V2.Ledger.Api      ( OutputDatum(..), TxOut(txOutAddress, txOutValue), txInfoOutputs,
                                    Value, ScriptContext(scriptContextTxInfo),
                                    TxInfo(txInfoReferenceInputs, txInfoMint),
                                    BuiltinData, mkMintingPolicyScript, adaToken,
                                    adaSymbol, MintingPolicy, TxInInfo(txInInfoResolved),
                                    txInfoInputs, txOutDatum, UnsafeFromData (unsafeFromBuiltinData),
-                                   ValidatorHash, txOutValue)
+                                   ValidatorHash)
 import Plutus.V1.Ledger.Value    ( assetClassValueOf, AssetClass(AssetClass), valueOf )
-import Plutus.V1.Ledger.Address  ( scriptHashAddress )
+import Plutus.V1.Ledger.Address  ( pubKeyHashAddress, scriptHashAddress )
 import Plutus.V2.Ledger.Contexts ( txSignedBy, scriptOutputsAt, ownCurrencySymbol )
 import PlutusTx                  ( compile, unstableMakeIsData,
                                    liftCode, applyCode, makeLift, CompiledCode )
 import PlutusTx.Prelude          ( Bool(False), Integer, Maybe(..), (.), negate, traceError,
                                    (&&), traceIfFalse, ($), Ord((<), (>), (>=)), Eq((==)), divide,
+                                   (-), 
                                    MultiplicativeSemigroup((*)))
 import qualified Prelude         ( Show, IO)
 import           Oracle          ( parseOracleDatum)
-import           Collateral      ( CollateralDatum (..), stablecoinTokenName, parseCollateralDatum)
+import           HW.Collateral   ( CollateralDatum (..), stablecoinTokenName, parseCollateralDatum)
 import           Utilities       (wrapPolicy, writeCodeToFile)
 
 ---------------------------------------------------------------------------------------------------
@@ -64,6 +65,7 @@ mkPolicy mp r ctx = case r of
     Liquidate -> traceIfFalse "invalid liquidating amount" checkBurnAmountMatchesColDatum &&
                  traceIfFalse "liquidation threshold not reached" checkLiquidation &&
                  traceIfFalse "Minting instead of burning!" checkBurnNegative
+              && traceIfFalse "At least 98% of collateral must go to it's owner" checkColOwnerGotMostOfCollateral
                  
     where
     info :: TxInfo
@@ -194,6 +196,27 @@ mkPolicy mp r ctx = case r of
     -- Check that the collateral's value is low enough to liquidate
     checkLiquidation :: Bool
     checkLiquidation = maxMint collateralInputAmount < negate mintedAmount
+
+    checkColOwnerGotMostOfCollateral :: Bool
+    checkColOwnerGotMostOfCollateral = collateralOwnerOutputAmount >= (collateralInputAmount - ((collateralInputAmount * 2) `divide` 100))
+
+    collateralOwnerOutputAmount :: Integer
+    collateralOwnerOutputAmount = valueOf (txOutValue collateralOwnerOutput) adaSymbol adaToken
+
+    collateralOwnerOutput :: TxOut
+    collateralOwnerOutput = case collateralOutputs of
+                        [o] -> o
+                        _   -> traceError "one output must go to collateral Owner"
+        where
+            collateralOutputs = [ o
+                                | pkh <- colOwnerPKH
+                                , o <- txInfoOutputs info
+                                , txOutAddress o == pkh
+                                ]
+
+            colOwnerPKH = case collateralInputDatum of
+                Nothing -> []
+                Just d  -> [pubKeyHashAddress (colOwner d)]
 
 ---------------------------------------------------------------------------------------------------
 ------------------------------ COMPILE AND SERIALIZE VALIDATOR ------------------------------------

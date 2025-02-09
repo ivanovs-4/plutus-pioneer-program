@@ -92,6 +92,7 @@ mkValidator dat r ctx = case r of
     checkStablecoinAmount :: Bool
     checkStablecoinAmount = negate (colStablecoinAmount dat) == mintedAmount
 
+
 ---------------------------------------------------------------------------------------------------
 ------------------------------ COMPILE AND SERIALIZE VALIDATOR ------------------------------------
 
