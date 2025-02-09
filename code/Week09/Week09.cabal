@@ -41,6 +41,7 @@ library
                         Minting
                         HW.Collateral
                         HW.Minting
+                        HW.Oracle
 
 test-suite week09-UnitTesting
     import:             common-all
